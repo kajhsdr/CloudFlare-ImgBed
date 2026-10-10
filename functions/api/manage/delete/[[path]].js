@@ -6,10 +6,12 @@ import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { DiscordAPI } from '../../../utils/storage/discordAPI.js';
 import { HuggingFaceAPI } from '../../../utils/storage/huggingfaceAPI.js';
 import { WebDAVAPI } from '../../../utils/storage/webdavAPI.js';
+import { TelegramAPI } from '../../../utils/storage/telegramAPI.js';
 import {
     resolveDiscordCredentials,
     resolveHuggingFaceCredentials,
     resolveS3Credentials,
+    resolveTelegramCredentials,
     resolveWebDAVCredentials,
 } from '../../../utils/metadata/channelCredentials.js';
 
@@ -169,6 +171,11 @@ export async function deleteFile(env, fileId, cdnUrl, url) {
             await deleteWebDAVFile(env, img);
         }
 
+        // Telegram 渠道的图片，需要删除 Telegram 频道中对应的消息
+        if (img.metadata?.Channel === 'Telegram' || img.metadata?.Channel === 'TelegramNew') {
+            await deleteTelegramFile(env, img);
+        }
+
         // 删除数据库中的记录
         // 注意：容量统计现在由索引自动维护，删除文件后索引更新时会自动重新计算
         await db.delete(fileId);
@@ -285,6 +292,64 @@ async function deleteWebDAVFile(env, img) {
         return await webdavAPI.deleteFile(filePath);
     } catch (error) {
         console.error("WebDAV Delete Failed:", error);
+        return false;
+    }
+}
+
+
+// 删除 Telegram 渠道的图片（删除 Telegram 频道中的消息）
+async function deleteTelegramFile(env, img) {
+    const db = getDatabase(env);
+    const tgCredentials = await resolveTelegramCredentials(db, env, img.metadata);
+    const botToken = tgCredentials.botToken;
+    const chatId = tgCredentials.chatId;
+    const proxyUrl = tgCredentials.proxyUrl || '';
+
+    if (!botToken || !chatId) {
+        console.warn('Telegram file missing required channel config for deletion');
+        return false;
+    }
+
+    const telegramAPI = new TelegramAPI(botToken, proxyUrl);
+
+    try {
+        // 分片上传的大文件：value 中保存了各分片的 fileId 与 messageId
+        if (img.metadata?.IsChunked === true) {
+            let chunks = [];
+            try {
+                chunks = JSON.parse(img.value || '[]');
+            } catch (e) {
+                chunks = [];
+            }
+
+            const messageIds = chunks.map(c => c.messageId).filter(Boolean);
+            if (messageIds.length === 0) {
+                console.warn('Telegram chunked file has no messageId info, cannot delete messages');
+                return false;
+            }
+
+            let allSuccess = true;
+            for (const messageId of messageIds) {
+                const ok = await telegramAPI.deleteMessage(chatId, messageId);
+                if (!ok) allSuccess = false;
+            }
+            return allSuccess;
+        }
+
+        // 单文件：metadata 中保存了消息ID
+        const messageId = img.metadata?.TgMessageId;
+        if (!messageId) {
+            console.warn('Telegram file missing TgMessageId metadata (uploaded before this feature), cannot delete message');
+            return false;
+        }
+
+        const success = await telegramAPI.deleteMessage(chatId, messageId);
+        if (!success) {
+            console.error('Telegram Delete Failed: API returned false');
+        }
+        return success;
+    } catch (error) {
+        console.error("Telegram Delete Failed:", error);
         return false;
     }
 }

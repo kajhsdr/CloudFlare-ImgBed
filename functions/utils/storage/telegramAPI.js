@@ -139,4 +139,42 @@ export class TelegramAPI {
         return response;
     }
 
+    /**
+     * 删除Telegram消息（用于删除频道中对应的文件消息）
+     * @param {string} chatId - 聊天/频道ID
+     * @param {number|string} messageId - 消息ID
+     * @returns {Promise<boolean>} 是否删除成功
+     */
+    async deleteMessage(chatId, messageId) {
+        if (!chatId || !messageId) {
+            console.warn('Telegram deleteMessage: missing chatId or messageId');
+            return false;
+        }
+
+        try {
+            const response = await fetch(`${this.baseURL}/deleteMessage`, {
+                method: 'POST',
+                headers: {
+                    ...this.defaultHeaders,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    message_id: Number(messageId)
+                })
+            });
+
+            const responseData = await response.json();
+            if (responseData.ok) {
+                return true;
+            }
+
+            console.error('Telegram deleteMessage failed:', responseData.description || response.statusText);
+            return false;
+        } catch (error) {
+            console.error('Telegram deleteMessage error:', error.message);
+            return false;
+        }
+    }
+
 }

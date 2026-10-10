@@ -619,6 +619,7 @@ async function uploadSingleChunkToTelegram(context, chunkData, chunkIndex, total
         return {
             success: true,
             fileId: chunkInfo.file_id,
+            messageId: chunkInfo.message_id,
             size: chunkInfo.file_size,
             fileName: chunkFileName,
             uploadTime: Date.now(),
@@ -1229,6 +1230,7 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
             chunks.push({
                 index: i,
                 fileId: chunkInfo.file_id,
+                messageId: chunkInfo.message_id,
                 size: chunkInfo.file_size,
                 fileName: chunkFileName
             });
@@ -1304,6 +1306,9 @@ async function uploadChunkToTelegramWithRetry(tgBotToken, tgChatId, tgProxyUrl, 
             if (!fileInfo) {
                 throw new Error('Failed to extract file info from response');
             }
+
+            // 附带消息ID，用于删除时同步删除频道中的消息
+            fileInfo.message_id = response?.result?.message_id;
 
             return fileInfo;
 
